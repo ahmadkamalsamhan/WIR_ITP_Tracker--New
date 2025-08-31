@@ -1,18 +1,17 @@
 import streamlit as st
 import pandas as pd
 import re
-import tempfile
+from collections import defaultdict
 from io import BytesIO
 import time
 
-st.set_page_config(page_title="ITP-WIR Matching App", layout="wide")
-st.title("📊 ITP-WIR Activity Status Matching (Fast & Memory-Safe)")
+st.set_page_config(page_title="ITP-WIR Matching Optimized", layout="wide")
+st.title("📊 Optimized ITP-WIR Matching App")
 
 # -------------------------------
-# Preprocessing functions
+# Text preprocessing
 # -------------------------------
 def preprocess_text(text):
-    """Normalize, remove special chars, split into tokens set"""
     if pd.isna(text):
         return set()
     text = str(text).lower()
@@ -21,10 +20,9 @@ def preprocess_text(text):
     return set(text.split())
 
 def assign_status(code):
-    """Convert PM Web Code to 0/1/2"""
     if pd.isna(code):
         return 0
-    code = str(code).strip().upper()
+    code = str(code).upper().strip()
     if code in ['A','B']:
         return 1
     elif code in ['C','D']:
@@ -32,105 +30,161 @@ def assign_status(code):
     return 0
 
 # -------------------------------
-# Upload files
+# Tabs for Part 1 and Part 2
 # -------------------------------
-itp_file = st.file_uploader("Upload ITP Log", type=["xlsx"])
-activity_file = st.file_uploader("Upload ITP Activities Log", type=["xlsx"])
-wir_file = st.file_uploader("Upload WIR Log (Document Control Log)", type=["xlsx"])
+tab1, tab2 = st.tabs(["Part 1: Title Matching", "Part 2: Activity Matching"])
 
-if itp_file and activity_file and wir_file:
-    itp_log = pd.read_excel(itp_file)
-    activity_log = pd.read_excel(activity_file)
-    wir_log = pd.read_excel(wir_file)
+# ===============================
+# Part 1: Title Matching
+# ===============================
+with tab1:
+    st.header("🔹 Part 1: WIR ↔ ITP Title Matching")
 
-    # Clean columns
-    itp_log.columns = itp_log.columns.str.strip()
-    activity_log.columns = activity_log.columns.str.strip()
-    wir_log.columns = wir_log.columns.str.strip()
+    wir_file = st.file_uploader("Upload WIR Log (Document Control Log)", type=["xlsx"], key="wir1")
+    itp_file = st.file_uploader("Upload ITP Log", type=["xlsx"], key="itp1")
 
-    st.success("✅ Files uploaded successfully!")
+    if wir_file and itp_file:
+        wir_log = pd.read_excel(wir_file)
+        itp_log = pd.read_excel(itp_file)
 
-    # -------------------------------
-    # Column Selection
-    # -------------------------------
-    st.subheader("Select Columns")
-    itp_no_col = st.selectbox("ITP No.", itp_log.columns)
-    itp_title_col = st.selectbox("ITP Title", itp_log.columns)
-    activity_desc_col = st.selectbox("Activity Description", activity_log.columns)
-    itp_ref_col = st.selectbox("ITP Reference", activity_log.columns)
-    activity_no_col = st.selectbox("Activity No.", activity_log.columns)
-    wir_title_col = st.selectbox("WIR Title (Title / Description2)", wir_log.columns)
-    wir_pm_col = st.selectbox("PM Web Code", wir_log.columns)
+        wir_log.columns = wir_log.columns.str.strip()
+        itp_log.columns = itp_log.columns.str.strip()
 
-    # -------------------------------
-    # Matching Button
-    # -------------------------------
-    if st.button("Generate WIR Status (Fast)"):
-        st.info("⏳ Processing...")
+        # Column selection
+        wir_doc_col = st.selectbox("WIR Document No.", wir_log.columns, key="wir_doc")
+        wir_title_col = st.selectbox("WIR Title (Title / Description2)", wir_log.columns, key="wir_title")
+        wir_pm_col = st.selectbox("WIR PM Web Code", wir_log.columns, key="wir_pm")
 
-        # Preprocess WIR Titles and ITP Titles
-        wir_log['WIR_Tokens'] = wir_log[wir_title_col].apply(preprocess_text)
-        itp_log['ITP_Tokens'] = itp_log[itp_title_col].apply(preprocess_text)
+        itp_no_col = st.selectbox("ITP No.", itp_log.columns, key="itp_no")
+        itp_title_col = st.selectbox("ITP Title (Title / Description)", itp_log.columns, key="itp_title")
 
-        # Create mapping from ITP No -> ITP Title tokens
-        itp_tokens_map = dict(zip(itp_log[itp_no_col], itp_log['ITP_Tokens']))
+        if st.button("Start Title Matching"):
+            st.info("⏳ Matching WIR titles with ITP titles...")
 
-        # Preprocess Activity Descriptions
-        activity_log['Activity_Tokens'] = activity_log[activity_desc_col].apply(preprocess_text)
+            start_time = time.time()
 
-        # Prepare results lists
-        status_list = []
-        score_list = []
+            wir_log['WIR_Tokens'] = wir_log[wir_title_col].apply(preprocess_text)
+            itp_log['ITP_Tokens'] = itp_log[itp_title_col].apply(preprocess_text)
 
-        total_rows = len(activity_log)
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        start_time = time.time()
+            # Build token → ITP indices lookup
+            token_to_itp = defaultdict(set)
+            for idx, tokens in enumerate(itp_log['ITP_Tokens']):
+                for token in tokens:
+                    token_to_itp[token].add(idx)
 
-        # Batch-wise processing
-        for i, row in activity_log.iterrows():
-            itp_no = row[itp_ref_col]
-            act_tokens = row['Activity_Tokens']
+            matched_rows = []
+            total_rows = len(wir_log)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
 
-            itp_tokens = itp_tokens_map.get(itp_no, set())
+            for i, row in wir_log.iterrows():
+                wir_tokens = row['WIR_Tokens']
+                candidate_indices = set()
+                for token in wir_tokens:
+                    candidate_indices.update(token_to_itp.get(token, set()))
 
-            # Match WIRs: token overlap
-            best_score = 0
-            best_pm_code = None
+                best_score = 0
+                best_idx = None
+                for idx in candidate_indices:
+                    itp_tokens = itp_log.at[idx, 'ITP_Tokens']
+                    score = len(wir_tokens & itp_tokens) / max(len(wir_tokens),1)
+                    if score > best_score:
+                        best_score = score
+                        best_idx = idx
 
-            for _, wir_row in wir_log.iterrows():
-                wir_tokens = wir_row['WIR_Tokens']
-                # token overlap score
-                common = itp_tokens & wir_tokens
-                score = len(common) / max(len(itp_tokens), 1)
-                if score > best_score:
-                    best_score = score
-                    best_pm_code = wir_row[wir_pm_col]
+                if best_idx is not None:
+                    itp_row = itp_log.loc[best_idx]
+                    matched_rows.append({
+                        "WIR Document No": row[wir_doc_col],
+                        "WIR Title": row[wir_title_col],
+                        "ITP No": itp_row[itp_no_col],
+                        "ITP Title": itp_row[itp_title_col],
+                        "PM Web Code": row[wir_pm_col],
+                        "Match Score (%)": round(best_score*100,1)
+                    })
 
-            # Assign WIR Status Code
-            status_list.append(assign_status(best_pm_code))
-            score_list.append(round(best_score*100, 1))
+                if i % 10 == 0 or i == total_rows -1:
+                    progress_bar.progress((i+1)/total_rows)
+                    status_text.text(f"Processing {i+1}/{total_rows}")
 
-            # Update progress
-            if (i % 10 == 0) or (i == total_rows-1):
-                progress_bar.progress((i+1)/total_rows)
-                status_text.text(f"Processing row {i+1}/{total_rows}")
+            result_df = pd.DataFrame(matched_rows)
+            st.success(f"✅ Completed in {time.time()-start_time:.2f} seconds")
+            st.dataframe(result_df)
 
-        # Append results
-        activity_log['WIR Status Code'] = status_list
-        activity_log['Match Score (%)'] = score_list
+            # Download
+            output = BytesIO()
+            result_df.to_excel(output, index=False, engine='openpyxl')
+            output.seek(0)
+            st.download_button("📥 Download Part 1 Result", data=output,
+                               file_name="Part1_WIR_ITP_Title_Match.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        end_time = time.time()
-        st.success(f"✅ Completed in {end_time - start_time:.2f} seconds")
-        st.dataframe(activity_log)
+# ===============================
+# Part 2: Activity Matching
+# ===============================
+with tab2:
+    st.header("🔹 Part 2: Match Activities with WIRs")
 
-        # Download Excel
-        output = BytesIO()
-        activity_log.to_excel(output, index=False, engine='openpyxl')
-        output.seek(0)
-        st.download_button(
-            "📥 Download Updated Activity Log",
-            data=output,
-            file_name="ITP_Activities_With_WIR_Status.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    part1_file = st.file_uploader("Upload Part 1 Result Excel", type=["xlsx"], key="part1")
+    activity_file = st.file_uploader("Upload ITP Activities Log", type=["xlsx"], key="activity2")
+
+    if part1_file and activity_file:
+        part1_df = pd.read_excel(part1_file)
+        activity_log = pd.read_excel(activity_file)
+
+        part1_df.columns = part1_df.columns.str.strip()
+        activity_log.columns = activity_log.columns.str.strip()
+
+        # Column selection
+        activity_desc_col = st.selectbox("Activity Description", activity_log.columns, key="act_desc")
+        itp_ref_col = st.selectbox("ITP Reference in Activities", activity_log.columns, key="act_itp_ref")
+        activity_no_col = st.selectbox("Activity No.", activity_log.columns, key="act_no")
+
+        if st.button("Start Activity Matching"):
+            st.info("⏳ Matching Activities with WIRs...")
+
+            start_time = time.time()
+
+            activity_log['Activity_Tokens'] = activity_log[activity_desc_col].apply(preprocess_text)
+            part1_df['ITP_Tokens'] = part1_df['ITP Title'].apply(preprocess_text)
+
+            status_list = []
+            score_list = []
+
+            total_rows = len(activity_log)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for i, row in activity_log.iterrows():
+                act_tokens = row['Activity_Tokens']
+                itp_no = row[itp_ref_col]
+                matched_itp_row = part1_df[part1_df['ITP No']==itp_no]
+
+                if not matched_itp_row.empty:
+                    itp_tokens = matched_itp_row.iloc[0]['ITP_Tokens']
+                    score = len(act_tokens & itp_tokens)/max(len(itp_tokens),1)
+                    score_list.append(round(score*100,1))
+
+                    pm_code = matched_itp_row.iloc[0]['PM Web Code']
+                    status_list.append(assign_status(pm_code))
+                else:
+                    score_list.append(0)
+                    status_list.append(0)
+
+                if i % 20 == 0 or i == total_rows-1:
+                    progress_bar.progress((i+1)/total_rows)
+                    status_text.text(f"Processing {i+1}/{total_rows}")
+
+            activity_log['WIR Status Code'] = status_list
+            activity_log['Match Score (%)'] = score_list
+
+            st.success(f"✅ Completed in {time.time()-start_time:.2f} seconds")
+            st.dataframe(activity_log)
+
+            # Download
+            output = BytesIO()
+            activity_log.to_excel(output, index=False, engine='openpyxl')
+            output.seek(0)
+            st.download_button("📥 Download Activity Matched Result", data=output,
+                               file_name="Part2_Activity_Match.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
