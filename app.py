@@ -6,8 +6,8 @@ from io import BytesIO
 import time
 from sentence_transformers import SentenceTransformer, util
 
-st.set_page_config(page_title="ITP-WIR Semantic Matching", layout="wide")
-st.title("📊 ITP-WIR Matching with Semantic Accuracy")
+st.set_page_config(page_title="Nesma & Partners - ITP-WIR Matching App", layout="wide")
+st.title("Nesma & Partners - ITP-WIR Matching App")
 
 # -------------------------------
 # Text preprocessing
@@ -46,7 +46,7 @@ tab1, tab2 = st.tabs(["Part 1: Title Matching", "Part 2: Activity Matching"])
 # Part 1: Title Matching
 # ===============================
 with tab1:
-    st.header("🔹 Part 1: WIR ↔ ITP Title Matching (Semantic + Token)")
+    st.header("WIR ↔ ITP Title Matching")
 
     wir_file = st.file_uploader("Upload WIR Log (Document Control Log)", type=["xlsx"], key="wir1")
     itp_file = st.file_uploader("Upload ITP Log", type=["xlsx"], key="itp1")
@@ -67,7 +67,7 @@ with tab1:
         itp_title_col = st.selectbox("ITP Title (Title / Description)", itp_log.columns, key="itp_title")
 
         if st.button("Start Title Matching"):
-            st.info("⏳ Matching WIR titles with ITP titles...")
+            st.info("⏳ Matching WIR with ITP ...")
 
             start_time = time.time()
 
@@ -141,7 +141,7 @@ with tab1:
 # Part 2: Activity Matching
 # ===============================
 with tab2:
-    st.header("🔹 Part 2: Activity Matching")
+    st.header("Activity Matching Process")
 
     part1_file = st.file_uploader("Upload Part 1 Result Excel", type=["xlsx"], key="part1")
     activity_file = st.file_uploader("Upload ITP Activities Log", type=["xlsx"], key="activity2")
