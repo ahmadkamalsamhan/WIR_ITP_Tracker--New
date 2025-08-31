@@ -3,10 +3,10 @@ import pandas as pd
 import re
 from io import BytesIO
 
-st.title("📊 ITP-WIR Activity Status with Match Score")
+st.title("📊 ITP-WIR Activity Status with Match Score & Progress Bar")
 
 # -------------------------------
-# Preprocessing
+# Preprocessing functions
 # -------------------------------
 def preprocess_text(text):
     """Lowercase, remove special chars, split into tokens"""
@@ -45,7 +45,7 @@ if itp_file and activity_file and wir_file:
     activity_log = pd.read_excel(activity_file)
     wir_log = pd.read_excel(wir_file)
 
-    # Strip spaces/newlines from columns
+    # Clean column names
     itp_log.columns = itp_log.columns.str.strip()
     activity_log.columns = activity_log.columns.str.strip()
     wir_log.columns = wir_log.columns.str.strip()
@@ -80,7 +80,11 @@ if itp_file and activity_file and wir_file:
         status_list = []
         match_score_list = []
 
-        for _, act_row in activity_log.iterrows():
+        total_rows = len(activity_log)
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        for i, act_row in activity_log.iterrows():
             itp_no = act_row[itp_ref_col]
             activity_desc = act_row[activity_desc_col]
             activity_tokens = preprocess_text(activity_desc)
@@ -90,6 +94,8 @@ if itp_file and activity_file and wir_file:
             if itp_row.empty:
                 status_list.append(0)
                 match_score_list.append(0)
+                progress_bar.progress((i+1)/total_rows)
+                status_text.text(f"Processing row {i+1} of {total_rows}")
                 continue
             itp_title = itp_row.iloc[0][itp_title_col]
             itp_tokens = preprocess_text(itp_title)
@@ -104,7 +110,6 @@ if itp_file and activity_file and wir_file:
                     best_wir = wir_row
 
             if best_wir is not None and best_score > 0:
-                # Optional: activity closeness (can improve later)
                 final_score = round(best_score*100, 1)
                 status_code = assign_status(best_wir[wir_pm_col])
             else:
@@ -114,13 +119,22 @@ if itp_file and activity_file and wir_file:
             status_list.append(status_code)
             match_score_list.append(final_score)
 
+            # Update progress bar
+            progress_bar.progress((i+1)/total_rows)
+            status_text.text(f"Processing row {i+1} of {total_rows}")
+
+        progress_bar.empty()
+        status_text.empty()
+
         activity_log['WIR Status Code'] = status_list
         activity_log['Match Score (%)'] = match_score_list
 
         st.success("✅ Status and Match Score added!")
         st.dataframe(activity_log)
 
-        # Download updated Excel
+        # -------------------------------
+        # Download Excel
+        # -------------------------------
         output = BytesIO()
         activity_log.to_excel(output, index=False, engine='openpyxl')
         output.seek(0)
