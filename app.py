@@ -66,7 +66,7 @@ with tab1:
         itp_no_col = st.selectbox("ITP No.", itp_log.columns, key="itp_no")
         itp_title_col = st.selectbox("ITP Title (Title / Description)", itp_log.columns, key="itp_title")
 
-        if st.button("Start Title Matching"):
+        if st.button("Start Matching"):
             st.info("⏳ Matching WIR with ITP ...")
 
             start_time = time.time()
