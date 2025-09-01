@@ -4,10 +4,9 @@ import re
 from collections import defaultdict
 from io import BytesIO
 import time
-from sentence_transformers import SentenceTransformer, util
 
-st.set_page_config(page_title="ITP-WIR Semantic Matching", layout="wide")
-st.title("📊 ITP-WIR Matching with Semantic Accuracy")
+st.set_page_config(page_title="ITP-WIR Matching Optimized", layout="wide")
+st.title("📊 Optimized ITP-WIR Matching App")
 
 # -------------------------------
 # Text preprocessing
@@ -30,13 +29,6 @@ def assign_status(code):
         return 2
     return 0
 
-# Load small, fast sentence transformer model
-@st.cache_resource
-def load_model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
-
-model = load_model()
-
 # -------------------------------
 # Tabs for Part 1 and Part 2
 # -------------------------------
@@ -46,7 +38,7 @@ tab1, tab2 = st.tabs(["Part 1: Title Matching", "Part 2: Activity Matching"])
 # Part 1: Title Matching
 # ===============================
 with tab1:
-    st.header("🔹 Part 1: WIR ↔ ITP Title Matching (Semantic + Token)")
+    st.header("🔹 Part 1: WIR ↔ ITP Title Matching")
 
     wir_file = st.file_uploader("Upload WIR Log (Document Control Log)", type=["xlsx"], key="wir1")
     itp_file = st.file_uploader("Upload ITP Log", type=["xlsx"], key="itp1")
@@ -71,7 +63,6 @@ with tab1:
 
             start_time = time.time()
 
-            # Preprocess tokens
             wir_log['WIR_Tokens'] = wir_log[wir_title_col].apply(preprocess_text)
             itp_log['ITP_Tokens'] = itp_log[itp_title_col].apply(preprocess_text)
 
@@ -81,9 +72,6 @@ with tab1:
                 for token in tokens:
                     token_to_itp[token].add(idx)
 
-            # Precompute embeddings for ITP titles
-            itp_log['ITP_Embedding'] = list(model.encode(itp_log[itp_title_col].astype(str).tolist(), convert_to_tensor=True))
-
             matched_rows = []
             total_rows = len(wir_log)
             progress_bar = st.progress(0)
@@ -91,24 +79,18 @@ with tab1:
 
             for i, row in wir_log.iterrows():
                 wir_tokens = row['WIR_Tokens']
-                # Candidate filtering via token overlap
                 candidate_indices = set()
                 for token in wir_tokens:
                     candidate_indices.update(token_to_itp.get(token, set()))
 
                 best_score = 0
                 best_idx = None
-
-                if candidate_indices:
-                    wir_emb = model.encode(str(row[wir_title_col]), convert_to_tensor=True)
-                    for idx in candidate_indices:
-                        itp_emb = itp_log.at[idx, 'ITP_Embedding']
-                        semantic_score = util.cos_sim(wir_emb, itp_emb).item()  # 0-1
-                        token_score = len(wir_tokens & itp_log.at[idx,'ITP_Tokens']) / max(len(wir_tokens),1)
-                        combined_score = 0.5*token_score + 0.5*semantic_score
-                        if combined_score > best_score:
-                            best_score = combined_score
-                            best_idx = idx
+                for idx in candidate_indices:
+                    itp_tokens = itp_log.at[idx, 'ITP_Tokens']
+                    score = len(wir_tokens & itp_tokens) / max(len(wir_tokens),1)
+                    if score > best_score:
+                        best_score = score
+                        best_idx = idx
 
                 if best_idx is not None:
                     itp_row = itp_log.loc[best_idx]
@@ -134,14 +116,14 @@ with tab1:
             result_df.to_excel(output, index=False, engine='openpyxl')
             output.seek(0)
             st.download_button("📥 Download Part 1 Result", data=output,
-                               file_name="Part1_WIR_ITP_SemanticMatch.xlsx",
+                               file_name="Part1_WIR_ITP_Title_Match.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # ===============================
 # Part 2: Activity Matching
 # ===============================
 with tab2:
-    st.header("🔹 Part 2: Activity Matching")
+    st.header("🔹 Part 2: Match Activities with WIRs")
 
     part1_file = st.file_uploader("Upload Part 1 Result Excel", type=["xlsx"], key="part1")
     activity_file = st.file_uploader("Upload ITP Activities Log", type=["xlsx"], key="activity2")
@@ -180,14 +162,9 @@ with tab2:
 
                 if not matched_itp_row.empty:
                     itp_tokens = matched_itp_row.iloc[0]['ITP_Tokens']
-                    token_score = len(act_tokens & itp_tokens)/max(len(itp_tokens),1)
-                    # Optionally semantic score for activity vs ITP title
-                    activity_emb = model.encode(str(row[activity_desc_col]), convert_to_tensor=True)
-                    itp_emb = model.encode(str(matched_itp_row.iloc[0]['ITP Title']), convert_to_tensor=True)
-                    semantic_score = util.cos_sim(activity_emb, itp_emb).item()
-                    combined_score = 0.5*token_score + 0.5*semantic_score
+                    score = len(act_tokens & itp_tokens)/max(len(itp_tokens),1)
+                    score_list.append(round(score*100,1))
 
-                    score_list.append(round(combined_score*100,1))
                     pm_code = matched_itp_row.iloc[0]['PM Web Code']
                     status_list.append(assign_status(pm_code))
                 else:
@@ -209,5 +186,5 @@ with tab2:
             activity_log.to_excel(output, index=False, engine='openpyxl')
             output.seek(0)
             st.download_button("📥 Download Activity Matched Result", data=output,
-                               file_name="Part2_Activity_SemanticMatch.xlsx",
+                               file_name="Part2_Activity_Match.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
