@@ -46,7 +46,7 @@ tab1, tab2 = st.tabs(["Part 1: ITP Matching", "Part 2: Activity Matching"])
 # Part 1: Title Matching
 # ===============================
 with tab1:
-    st.header("WIR ↔ ITP Title Matching")
+    st.header("WIR ↔ ITP Matching")
 
     wir_file = st.file_uploader("Upload WIR Log (Document Control Log)", type=["xlsx"], key="wir1")
     itp_file = st.file_uploader("Upload ITP Log", type=["xlsx"], key="itp1")
