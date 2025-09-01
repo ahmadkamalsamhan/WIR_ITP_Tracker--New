@@ -40,7 +40,7 @@ model = load_model()
 # -------------------------------
 # Tabs for Part 1 and Part 2
 # -------------------------------
-tab1, tab2 = st.tabs(["Part 1: Title Matching", "Part 2: Activity Matching"])
+tab1, tab2 = st.tabs(["Part 1: ITP Matching", "Part 2: Activity Matching"])
 
 # ===============================
 # Part 1: Title Matching
